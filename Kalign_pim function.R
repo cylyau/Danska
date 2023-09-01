@@ -1,3 +1,4 @@
+# #### Kalign distance matrix via REST API function ####
 # ==== Required libraries ====
 library(httr)
 library(ShortRead)

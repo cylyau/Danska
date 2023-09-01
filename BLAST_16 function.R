@@ -1,3 +1,4 @@
+# ##### BLAST_16S search function ####
 # ==== Required libraries ====
 library(httr)
 library(ShortRead)
