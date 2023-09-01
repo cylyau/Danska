@@ -1,191 +1,3 @@
-# #### filterAndTrim with Windows parallelization function ####
-# ==== Required libraries ====
-library(dada2)
-library(doParallel)
-library(plyr)
-# ==== Parameter documentation ====
-# see dada2::filterAndTrim()
-# ==== filterAndTrimWinPara function ====
-filterAndTrimWinPara = function(fwd, filt, rev = NULL, filt.rev = NULL, compress = TRUE, 
-                                truncQ = 2, truncLen = 0, trimLeft = 0, trimRight = 0, maxLen = Inf, 
-                                minLen = 20, maxN = 0, minQ = 0, maxEE = Inf, rm.phix = TRUE, 
-                                rm.lowcomplex = 0, orient.fwd = NULL, matchIDs = FALSE, 
-                                id.sep = "\\s", id.field = NULL, multithread = FALSE, n = 1e+05, 
-                                OMP = TRUE, qualityType = "Auto", verbose = FALSE) 
-{
-  PAIRED <- FALSE
-  if (!(is.character(fwd) && is.character(filt))) 
-    stop("File paths must be provided as character vectors.")
-  if (length(fwd) == 1 && dir.exists(fwd)) 
-    fwd <- parseFastqDirectory(fwd)
-  if (!all(file.exists(fwd))) 
-    stop("Some input files do not exist.")
-  if (length(filt) == 1 && length(fwd) > 1) 
-    filt <- file.path(filt, basename(fwd))
-  if (length(fwd) != length(filt)) 
-    stop("Every input file must have a corresponding output file.")
-  odirs <- unique(dirname(filt))
-  for (odir in odirs) {
-    if (!dir.exists(odir)) {
-      message("Creating output directory: ", odir)
-      dir.create(odir, recursive = TRUE, mode = "0777")
-    }
-  }
-  fwd <- normalizePath(fwd, mustWork = TRUE)
-  filt <- suppressWarnings(normalizePath(filt, mustWork = FALSE))
-  if (any(duplicated(filt))) 
-    stop("All output files must be distinct.")
-  if (any(filt %in% fwd)) 
-    stop("Output files must be distinct from the input files.")
-  if (!is.null(rev)) {
-    PAIRED <- TRUE
-    if (is.null(filt.rev)) 
-      stop("Output files for the reverse reads are required.")
-    if (!(is.character(rev) && is.character(filt.rev))) 
-      stop("File paths (rev/filt.rev) must be provided as character vectors.")
-    if (length(rev) == 1 && dir.exists(rev)) 
-      rev <- parseFastqDirectory(rev)
-    if (!all(file.exists(rev))) 
-      stop("Some input files (rev) do not exist.")
-    if (length(rev) != length(fwd)) 
-      stop("Paired forward and reverse input files must correspond.")
-    if (length(filt.rev) == 1 && length(rev) > 1) 
-      filt.rev <- file.path(filt.rev, basename(rev))
-    if (length(rev) != length(filt.rev)) 
-      stop("Every input file (rev) must have a corresponding output file (filt.rev).")
-    odirs <- unique(dirname(filt.rev))
-    for (odir in odirs) {
-      if (!dir.exists(odir)) {
-        message("Creating output directory:", odir)
-        dir.create(odir, recursive = TRUE, mode = "0777")
-      }
-    }
-    rev <- suppressWarnings(normalizePath(rev, mustWork = TRUE))
-    filt.rev <- suppressWarnings(normalizePath(filt.rev, 
-                                               mustWork = FALSE))
-    if (any(duplicated(c(filt, filt.rev)))) 
-      stop("All output files must be distinct.")
-    if (any(c(filt, filt.rev) %in% c(fwd, rev))) 
-      stop("Output files must be distinct from the input files.")
-  }
-  
-  # added multithreading compatibility for Windows
-  if(.Platform$OS.type == "windows"){
-    parallelization <- "socket"
-  }else{
-    parallelization <- "fork"
-  }
-  # if (multithread && .Platform$OS.type == "unix") {
-  if(multithread){
-    OMP <- FALSE
-    ncores <- detectCores()
-    if (is.numeric(multithread))
-      ncores <- multithread
-    if (is.na(ncores))
-      ncores <- 1
-    if (ncores > 1)
-      verbose <- FALSE
-  }else{
-    ncores <- 1
-    # if (multithread && .Platform$OS.type == "windows") {
-    #   message("Multithreading has been DISABLED, as forking is not supported on .Platform$OS.type 'windows'")
-  }
-  if (PAIRED) {
-    if(!multithread | parallelization == "fork"){
-      rval <- mcmapply(fastqPairedFilter, mapply(c, fwd, rev, 
-                                                 SIMPLIFY = FALSE), mapply(c, filt, filt.rev, SIMPLIFY = FALSE), 
-                       MoreArgs = list(truncQ = truncQ, truncLen = truncLen, 
-                                       trimLeft = trimLeft, trimRight = trimRight, 
-                                       maxLen = maxLen, minLen = minLen, maxN = maxN, 
-                                       minQ = minQ, maxEE = maxEE, rm.phix = rm.phix, 
-                                       rm.lowcomplex = rm.lowcomplex, orient.fwd = orient.fwd, 
-                                       matchIDs = matchIDs, id.sep = id.sep, id.field = id.field, 
-                                       n = n, OMP = OMP, qualityType = qualityType, 
-                                       compress = compress, verbose = verbose), mc.cores = ncores, 
-                       mc.silent = TRUE)
-    }
-    if(parallelization == "socket"){
-      fn <- mapply(c, fwd, rev, SIMPLIFY = FALSE)
-      fout <- mapply(c, filt, filt.rev, SIMPLIFY = FALSE)
-      mat <- cbind(fn = fn, fout = fout)
-      
-      # starting parallel backend
-      cl <- makeCluster(ncores, type = "PSOCK")
-      registerDoParallel(cl)
-      
-      rval <- maply(.data = mat, .expand = FALSE, .fun = fastqPairedFilter,
-                    truncQ = truncQ, truncLen = truncLen, 
-                    trimLeft = trimLeft, trimRight = trimRight, 
-                    maxLen = maxLen, minLen = minLen, maxN = maxN, 
-                    minQ = minQ, maxEE = maxEE, rm.phix = rm.phix, 
-                    rm.lowcomplex = rm.lowcomplex, orient.fwd = orient.fwd, 
-                    matchIDs = matchIDs, id.sep = id.sep, id.field = id.field, 
-                    n = n, OMP = OMP, qualityType = qualityType, 
-                    compress = compress, verbose = verbose,
-                    .parallel = TRUE, .paropts = list(.packages = "dada2"))
-      
-      #stopping parallel backend
-      stopCluster(cl)
-      
-      rval <- t(rval)
-    }
-  }
-  else {
-    if(!multithread | parallelization == "fork"){
-      rval <- mcmapply(fastqFilter, fwd, filt, MoreArgs = list(truncQ = truncQ, 
-                                                               truncLen = truncLen, trimLeft = trimLeft, trimRight = trimRight, 
-                                                               maxLen = maxLen, minLen = minLen, maxN = maxN, minQ = minQ, 
-                                                               maxEE = maxEE, rm.phix = rm.phix, rm.lowcomplex = rm.lowcomplex, 
-                                                               orient.fwd = orient.fwd, n = n, OMP = OMP, qualityType = qualityType, 
-                                                               compress = compress, verbose = verbose), mc.cores = ncores, 
-                       mc.silent = TRUE)
-    }
-    if(parallelization == "socket"){
-      mat <- cbind(fn = fwd, fout = filt)
-      
-      # starting parallel backend
-      cl <- makeCluster(ncores, type = "PSOCK")
-      registerDoParallel(cl)
-      
-      rval <- maply(.data = mat, .expand = FALSE, .fun = fastqFilter,
-                    truncQ = truncQ, 
-                    truncLen = truncLen, trimLeft = trimLeft, trimRight = trimRight, 
-                    maxLen = maxLen, minLen = minLen, maxN = maxN, minQ = minQ, 
-                    maxEE = maxEE, rm.phix = rm.phix, rm.lowcomplex = rm.lowcomplex, 
-                    orient.fwd = orient.fwd, n = n, OMP = OMP, qualityType = qualityType, 
-                    compress = compress, verbose = verbose,
-                    .parallel = TRUE,.inform = TRUE, .paropts = list(.packages = "dada2"))
-      
-      #stopping parallel backend
-      stopCluster(cl)
-      
-      rval <- t(rval)
-      colnames(rval) <- fwd
-    }
-  }
-  if (!is(rval, "matrix")) {
-    if (is(rval, "list")) {
-      rval <- unlist(rval[sapply(rval, is.character)])
-    }
-    if (length(rval) > 5) 
-      rval <- rval[1:5]
-    stop("These are the errors (up to 5) encountered in individual cores...\n", 
-         rval)
-  }
-  if (ncol(rval) != length(fwd)) {
-    stop("Some input files were not processed, perhaps due to memory issues. Consider lowering ncores.")
-  }
-  colnames(rval) <- basename(fwd)
-  if (all(rval["reads.out", ] == 0)) {
-    warning("No reads passed the filter. Please revisit your filtering parameters.")
-  }
-  else if (any(rval["reads.out", ] == 0)) {
-    message("Some input samples had no reads pass the filter.")
-  }
-  return(invisible(t(rval)))
-}
-
-
 # #### DADA2 Processing Pipeline function ####
 # ==== Required libraries ====
 library(dada2)
@@ -294,11 +106,11 @@ process = function(path,
       stop(("If pooling, poolList must not be NULL."))
     }
   }
-    # all samples in sample.names will be processed; 
-    # samples in poolList will be pooled according to poolList,
-    # orientFR.split samples should be pooled as separate ".orientF" and ".orientF" pools
-    # samples not in poolList will default to a pool containing all unpooled samples
-    
+  # all samples in sample.names will be processed; 
+  # samples in poolList will be pooled according to poolList,
+  # orientFR.split samples should be pooled as separate ".orientF" and ".orientF" pools
+  # samples not in poolList will default to a pool containing all unpooled samples
+  
   if(!is.null(poolList)){
     # determining samples in/out poolList
     inPoolListNamesMatch = unlist(poolList, use.names = FALSE)
@@ -310,15 +122,15 @@ process = function(path,
     poolList = list()
   }
   
-    # if there are unpooled samples, create unpooled sample pool(s)
-    if(length(outPoolListNamesMatch) > 0){
-      if(!orientFR.split){
-        poolList[[errPoolName]] = c(sample.names[outPoolListNamesMatch])
-      }else{
-        poolList[[paste0(errPoolName,".orientF")]] = c(sample.names[outPoolListNamesMatch][grep(".orientF",sample.names[outPoolListNamesMatch], fixed = FALSE)])
-        poolList[[paste0(errPoolName,".orientR")]] = c(sample.names[outPoolListNamesMatch][grep(".orientR",sample.names[outPoolListNamesMatch], fixed = FALSE)])
-      }
+  # if there are unpooled samples, create unpooled sample pool(s)
+  if(length(outPoolListNamesMatch) > 0){
+    if(!orientFR.split){
+      poolList[[errPoolName]] = c(sample.names[outPoolListNamesMatch])
+    }else{
+      poolList[[paste0(errPoolName,".orientF")]] = c(sample.names[outPoolListNamesMatch][grep(".orientF",sample.names[outPoolListNamesMatch], fixed = FALSE)])
+      poolList[[paste0(errPoolName,".orientR")]] = c(sample.names[outPoolListNamesMatch][grep(".orientR",sample.names[outPoolListNamesMatch], fixed = FALSE)])
     }
+  }
   # ---- create sequence tracking table ----
   if(!orientFR.split){
     track <- data.frame(rep_len(NA,length(sample.names)), NA, NA, NA, NA, NA)
@@ -380,31 +192,31 @@ process = function(path,
       poolerrR <- learnErrors(poolfiltRs, multithread=TRUE)
       
       if(ErrModelMonotonicity){
-          #set error values for Q-scores<40 to equal error values for Q-scores=40
-          #ErrF
-          poolerrFOutMono = (getErrors(poolerrF))
-          poolerrFOutMono = apply(poolerrFOutMono, 2, FUN = function(x){
-            y = x
-            print(y)
-            y[y<poolerrFOutMono[,40]] = poolerrFOutMono[,40][y<poolerrFOutMono[,40]]
-            print(y)
-            return(y)
-          })
-          
-          poolerrF$err_out = poolerrFOutMono
-          
-          #ErrR
-          poolerrROutMono = (getErrors(poolerrR))
-          poolerrROutMono = apply(poolerrROutMono, 2, FUN = function(x){
-            y = x
-            print(y)
-            y[y<poolerrROutMono[,40]] = poolerrROutMono[,40][y<poolerrROutMono[,40]]
-            print(y)
-            return(y)
-          })
-          
-          poolerrR$err_out = poolerrROutMono
-        }
+        #set error values for Q-scores<40 to equal error values for Q-scores=40
+        #ErrF
+        poolerrFOutMono = (getErrors(poolerrF))
+        poolerrFOutMono = apply(poolerrFOutMono, 2, FUN = function(x){
+          y = x
+          print(y)
+          y[y<poolerrFOutMono[,40]] = poolerrFOutMono[,40][y<poolerrFOutMono[,40]]
+          print(y)
+          return(y)
+        })
+        
+        poolerrF$err_out = poolerrFOutMono
+        
+        #ErrR
+        poolerrROutMono = (getErrors(poolerrR))
+        poolerrROutMono = apply(poolerrROutMono, 2, FUN = function(x){
+          y = x
+          print(y)
+          y[y<poolerrROutMono[,40]] = poolerrROutMono[,40][y<poolerrROutMono[,40]]
+          print(y)
+          return(y)
+        })
+        
+        poolerrR$err_out = poolerrROutMono
+      }
       
       #saving error model files as .rds
       saveRDS(poolerrF,file = paste0(path,"/Error Models/",dadaPoolName,"_errF.rds"))
@@ -638,7 +450,7 @@ process = function(path,
       
       dadaErrR = readRDS(file.path(path,"Error Models",paste0(dadaPoolName,"_errR.rds")))
       
-
+      
       #DADA denoising
       dadaRList <- dada(poolDerepRFileList, err=dadaErrR, priors = dadapriorsR, pool=denoisePoolParameter, OMEGA_A = OMEGA_A, multithread=TRUE)
       
@@ -718,7 +530,7 @@ process = function(path,
   # ---- Removing bimeras and merging orientFR.split samples ----
   cat("\n")
   cat("Removing bimeras...\n")
-
+  
   # all samples in sample.names will be processed; 
   # samples in poolList will be pooled according to poolList,
   # samples not in poolList will default to an bimera removal pool containing all unpooled samples
@@ -728,7 +540,7 @@ process = function(path,
     
     poolSampleNames = poolList[[dadaPoolName]]
     poolSampleNamesMatch = match(poolSampleNames,sample.names)
-
+    
     poolseqtab <- makeSequenceTable(mergers[poolSampleNamesMatch])
     saveRDS(poolseqtab,file = paste0(path,"/outputs/",dadaPoolName,"_seqtab.rds"))
     
@@ -764,7 +576,7 @@ process = function(path,
     })
   }
   print(track)
-    
+  
   cat("\n")
   cat("Done.\n")
   return(track)
