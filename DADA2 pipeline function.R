@@ -4,6 +4,13 @@ library(dada2)
 library(Biostrings)
 library(doParallel)
 library(plyr)
+# ==== Required functions ====
+tryCatch(
+  source("filterAndTrimWinPara.R"),
+  error = function(e){
+    message("filterAndTrimWinPara.R expected in source folder")
+  }
+)
 # ==== Parameter documentation ====
 # ---- Path parameters ----
 # path : filepath to folder into which new folders/outputs will be written
