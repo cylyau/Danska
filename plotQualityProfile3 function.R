@@ -1,34 +1,50 @@
+# #### Q score quantiles calculation function ####
+# ==== Required libraries ====
+# ==== Parameter documentation ====
+# scores : vector of Q scores
+
+# counts : counts of each of the Q scores given by "scores"
+
+# prob: vector of quantiles. must be <=1.
+
 # ==== QscoreQuantiles function ====
 QscoreQuantiles = function(scores, counts, prob){
+  # QscoreQuantiles wraps base R quantile function with transformation of Q scores to probabilities
+  # Old code replicates base R quantile function with parameters "type" = 4, "names" = FALSE
   scoreProb = 1-10^(scores/-10)
+  x = rep(scoreProb, times = counts)
+  quant = quantile(x, probs = prob, names = FALSE, type = 4)
+  quantQ = log10(1-quant)*-10
+  quantQ
   
-  testintervals1 <- cumsum(counts)
-  testintervals2 <- c(0,testintervals1[-length(testintervals1)]+1)
-  testintervals <- as.vector(rbind(testintervals2,testintervals1))
-  
-  probCounts = prob*testintervals1[length(testintervals1)]
-  
-  probInterval = findInterval(probCounts, testintervals, rightmost.closed = TRUE)
-  
-  quant = numeric(length = length(prob))
-  
-  inRun = probInterval %% 2 == 1
-  
-  quant[inRun] = scores[(probInterval[inRun]+1)/2]
-  
-  outRun = !inRun
-  
-  scoreProb1 <- scoreProb[probInterval[outRun]/2]      ## x-value to the left of the jump
-  scoreProb2 <- scoreProb[probInterval[outRun]/2 + 1]  ## x-value to the right of the jump
-  count1 <- testintervals1[probInterval[outRun]/2]      ## percentile to the left of the jump
-  p  <- probCounts[outRun]   ## probability on the jump
-  ## evaluate the line `(pl, xl) -- (pr, xr)` at `p`
-  # xq[on_jump] <- (xr - xl) / (pr - pl) * (p - pl) + xl
-  
-  
-  quant[outRun] = log10(1-((scoreProb2 - scoreProb1) * (p - count1) + scoreProb1))*-10
-  
-  quant
+  # Old code:
+  # testintervals1 <- cumsum(counts)
+  # testintervals2 <- c(0,testintervals1[-length(testintervals1)]+1)
+  # testintervals <- as.vector(rbind(testintervals2,testintervals1))
+  # 
+  # probCounts = prob*testintervals1[length(testintervals1)]
+  # 
+  # probInterval = findInterval(probCounts, testintervals, rightmost.closed = TRUE)
+  # 
+  # quant = numeric(length = length(prob))
+  # 
+  # inRun = probInterval %% 2 == 1
+  # 
+  # quant[inRun] = scores[(probInterval[inRun]+1)/2]
+  # 
+  # outRun = !inRun
+  # 
+  # scoreProb1 <- scoreProb[probInterval[outRun]/2]      ## x-value to the left of the jump
+  # scoreProb2 <- scoreProb[probInterval[outRun]/2 + 1]  ## x-value to the right of the jump
+  # count1 <- testintervals1[probInterval[outRun]/2]      ## percentile to the left of the jump
+  # p  <- probCounts[outRun]   ## probability on the jump
+  # ## evaluate the line `(pl, xl) -- (pr, xr)` at `p`
+  # # xq[on_jump] <- (xr - xl) / (pr - pl) * (p - pl) + xl
+  # 
+  # 
+  # quant[outRun] = log10(1-((scoreProb2 - scoreProb1) * (p - count1) + scoreProb1))*-10
+  # 
+  # quant
 }
 # ==== getAggregateQualityScores function ====
 getAggregateQualityScores = function (fl, n = 5e+05, quantiles = FALSE){
