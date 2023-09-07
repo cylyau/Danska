@@ -267,6 +267,11 @@ library(plyr)
 # saveFiltered = TRUE : should filtered FASTQ files be saved? If not, files will be removed after dereplication.
 # saveDereplicated = TRUE : should dereplicated reads files be saved? If not, files will be removed after merging.
 # saveDenoised = TRUE : should DADA denoised files be saved? If not, files will be removed after merging.
+# ---- Paralellization parameters ----
+# parallel = TRUE : should functions run parallelized? If FALSE, all parallelized functions are run serially.
+# ncores = detectCores() : number of cores to be used in paralellized functions. If unspecified, uses all cores detected.
+# If ncores = 1, all functions are run serially.
+
 # ==== DADA2 Processing Pipeline function ====
 process = function(path,
                    fnFs, fnRs, sample.names, errPoolName, orientFR.split = FALSE,
@@ -285,7 +290,28 @@ process = function(path,
                    
                    saveFiltered = TRUE,
                    saveDereplicated = TRUE,
-                   saveDenoised = TRUE){
+                   saveDenoised = TRUE,
+                   
+                   parallel = TRUE,
+                   ncores = NULL){
+  # ---- paralellization setup ----
+  # select parallelization method based on OS
+  if(.Platform$OS.type == "windows"){
+    parallelization <- "socket"
+  }else{
+    parallelization <- "fork"
+  }
+  
+  # If ncores = 1, set parallel = FALSE
+  if(ncores == 1){
+    parallel = FALSE
+  }
+  
+  # If parallel = FALSE, set ncores = 1
+  if(parallel == FALSE){
+    ncores = 1
+  }
+  
   # ---- pooling structure setup ----
   cat("Pooling structure setup...\n")
   
@@ -295,11 +321,11 @@ process = function(path,
       stop(("If pooling, poolList must not be NULL."))
     }
   }
-    # all samples in sample.names will be processed; 
-    # samples in poolList will be pooled according to poolList,
-    # orientFR.split samples should be pooled as separate ".orientF" and ".orientF" pools
-    # samples not in poolList will default to a pool containing all unpooled samples
-    
+  # all samples in sample.names will be processed; 
+  # samples in poolList will be pooled according to poolList,
+  # orientFR.split samples should be pooled as separate ".orientF" and ".orientF" pools
+  # samples not in poolList will default to a pool containing all unpooled samples
+  
   if(!is.null(poolList)){
     # determining samples in/out poolList
     inPoolListNamesMatch = unlist(poolList, use.names = FALSE)
@@ -311,15 +337,15 @@ process = function(path,
     poolList = list()
   }
   
-    # if there are unpooled samples, create unpooled sample pool(s)
-    if(length(outPoolListNamesMatch) > 0){
-      if(!orientFR.split){
-        poolList[[errPoolName]] = c(sample.names[outPoolListNamesMatch])
-      }else{
-        poolList[[paste0(errPoolName,".orientF")]] = c(sample.names[outPoolListNamesMatch][grep(".orientF",sample.names[outPoolListNamesMatch], fixed = FALSE)])
-        poolList[[paste0(errPoolName,".orientR")]] = c(sample.names[outPoolListNamesMatch][grep(".orientR",sample.names[outPoolListNamesMatch], fixed = FALSE)])
-      }
+  # if there are unpooled samples, create unpooled sample pool(s)
+  if(length(outPoolListNamesMatch) > 0){
+    if(!orientFR.split){
+      poolList[[errPoolName]] = c(sample.names[outPoolListNamesMatch])
+    }else{
+      poolList[[paste0(errPoolName,".orientF")]] = c(sample.names[outPoolListNamesMatch][grep(".orientF",sample.names[outPoolListNamesMatch], fixed = FALSE)])
+      poolList[[paste0(errPoolName,".orientR")]] = c(sample.names[outPoolListNamesMatch][grep(".orientR",sample.names[outPoolListNamesMatch], fixed = FALSE)])
     }
+  }
   # ---- create sequence tracking table ----
   if(!orientFR.split){
     track <- data.frame(rep_len(NA,length(sample.names)), NA, NA, NA, NA, NA)
@@ -344,7 +370,7 @@ process = function(path,
     #NOTE: consider relaxing maxEE if needed
     out <- filterAndTrimWinPara(fnFs, filtFs, fnRs, filtRs, truncLen = truncLenSelect, trimLeft = trimLeftSelect,
                                 maxN=0, maxEE=c(2,2), truncQ=2, rm.phix=TRUE,
-                                compress=TRUE, multithread=TRUE, matchIDs=filter.matchIDs)
+                                compress=TRUE, multithread=parallel, ncores = ncores, matchIDs=filter.matchIDs)
     
     track[,1:2] <- out
     print(track)
@@ -377,35 +403,35 @@ process = function(path,
       print(poolSampleNames)
       
       #learning error models
-      poolerrF <- learnErrors(poolfiltFs, multithread=TRUE)
-      poolerrR <- learnErrors(poolfiltRs, multithread=TRUE)
+      poolerrF <- learnErrors(poolfiltFs, multithread=ncores)
+      poolerrR <- learnErrors(poolfiltRs, multithread=ncores)
       
       if(ErrModelMonotonicity){
-          #set error values for Q-scores<40 to equal error values for Q-scores=40
-          #ErrF
-          poolerrFOutMono = (getErrors(poolerrF))
-          poolerrFOutMono = apply(poolerrFOutMono, 2, FUN = function(x){
-            y = x
-            print(y)
-            y[y<poolerrFOutMono[,40]] = poolerrFOutMono[,40][y<poolerrFOutMono[,40]]
-            print(y)
-            return(y)
-          })
-          
-          poolerrF$err_out = poolerrFOutMono
-          
-          #ErrR
-          poolerrROutMono = (getErrors(poolerrR))
-          poolerrROutMono = apply(poolerrROutMono, 2, FUN = function(x){
-            y = x
-            print(y)
-            y[y<poolerrROutMono[,40]] = poolerrROutMono[,40][y<poolerrROutMono[,40]]
-            print(y)
-            return(y)
-          })
-          
-          poolerrR$err_out = poolerrROutMono
-        }
+        #set error values for Q-scores<40 to equal error values for Q-scores=40
+        #ErrF
+        poolerrFOutMono = (getErrors(poolerrF))
+        poolerrFOutMono = apply(poolerrFOutMono, 2, FUN = function(x){
+          y = x
+          print(y)
+          y[y<poolerrFOutMono[,40]] = poolerrFOutMono[,40][y<poolerrFOutMono[,40]]
+          print(y)
+          return(y)
+        })
+        
+        poolerrF$err_out = poolerrFOutMono
+        
+        #ErrR
+        poolerrROutMono = (getErrors(poolerrR))
+        poolerrROutMono = apply(poolerrROutMono, 2, FUN = function(x){
+          y = x
+          print(y)
+          y[y<poolerrROutMono[,40]] = poolerrROutMono[,40][y<poolerrROutMono[,40]]
+          print(y)
+          return(y)
+        })
+        
+        poolerrR$err_out = poolerrROutMono
+      }
       
       #saving error model files as .rds
       saveRDS(poolerrF,file = paste0(path,"/Error Models/",dadaPoolName,"_errF.rds"))
@@ -434,12 +460,17 @@ process = function(path,
   dir.create(path = paste0(path,"/dereplicated"), showWarnings = TRUE)
   
   if(!preDerepToggle){
-    # dereplication is done multicore parallel, if possible
+    # dereplication is done multicore parallel, if possible and not specified by user
     # generating parallel backend
-    nodes <- detectCores()
-    cl <- makeCluster(nodes, type = "PSOCK")
-    registerDoParallel(cl)
-    
+    if(parallel){
+      nodes <- ncores
+      if(parallelization == "socket"){   
+        cl <- makeCluster(nodes, type = "PSOCK")
+      }else{
+        cl <- makeForkCluster(nodes)
+      }
+      registerDoParallel(cl)
+    }
     # dereplicating fwd reads
     derepFs = aaply(filtFs,1,function(x, filePath = path){
       sampleName = laply(strsplit(x, "filtered/", fixed = TRUE), function(y) y[2])
@@ -448,7 +479,7 @@ process = function(path,
       derepF <- derepFastq(x, verbose=TRUE)
       saveRDS(derepF,file = paste0(filePath,"/dereplicated/",sampleName,"_derepF.rds"))
       return(paste0(filePath,"/dereplicated/",sampleName,"_derepF.rds"))
-    }, filePath = path, .parallel = TRUE, .paropts = list(.packages = "dada2"))
+    }, filePath = path, .parallel = parallel, .paropts = list(.packages = "dada2"))
     
     # dereplicating rev reads
     derepRs = aaply(filtRs,1,function(x, filePath = path){
@@ -458,10 +489,12 @@ process = function(path,
       derepR <- derepFastq(x, verbose=TRUE)
       saveRDS(derepR,file = paste0(filePath,"/dereplicated/",sampleName,"_derepR.rds"))
       return(paste0(filePath,"/dereplicated/",sampleName,"_derepR.rds"))
-    }, filePath = path, .parallel = TRUE, .paropts = list(.packages = "dada2"))
+    }, filePath = path, .parallel = parallel, .paropts = list(.packages = "dada2"))
     
     #stopping parallel backend
-    stopCluster(cl)
+    if(parallel){
+      stopCluster(cl)
+    }
     
     # Name the derep-class objects by the sample names
     names(derepFs) <- sample.names
@@ -572,7 +605,7 @@ process = function(path,
       }
       
       #DADA denoising
-      dadaFList <- dada(poolDerepFFileList, err=dadaErrF, priors = dadaPriorsF, pool=denoisePoolParameter, OMEGA_A = OMEGA_A, multithread=TRUE)
+      dadaFList <- dada(poolDerepFFileList, err=dadaErrF, priors = dadaPriorsF, pool=denoisePoolParameter, OMEGA_A = OMEGA_A, multithread=ncores)
       
       for(i in 1:length(dadaFList)){
         saveRDS(dadaFList[[i]],file = paste0(path,"/dada denoised/",poolSampleNames[i],"_dadaF.rds"))
@@ -639,9 +672,9 @@ process = function(path,
       
       dadaErrR = readRDS(file.path(path,"Error Models",paste0(dadaPoolName,"_errR.rds")))
       
-
+      
       #DADA denoising
-      dadaRList <- dada(poolDerepRFileList, err=dadaErrR, priors = dadapriorsR, pool=denoisePoolParameter, OMEGA_A = OMEGA_A, multithread=TRUE)
+      dadaRList <- dada(poolDerepRFileList, err=dadaErrR, priors = dadapriorsR, pool=denoisePoolParameter, OMEGA_A = OMEGA_A, multithread=ncores)
       
       for(i in 1:length(dadaRList)){
         saveRDS(dadaRList[[i]],file = paste0(path,"/dada denoised/",poolSampleNames[i],"_dadaR.rds"))
@@ -672,9 +705,15 @@ process = function(path,
   
   # merging fwd and rev sequences is done multicore parallel, if possible
   # generating parallel backend
-  nodes <- detectCores()
-  cl <- makeCluster(nodes, type = "PSOCK")
-  registerDoParallel(cl)
+  if(parallel){
+    nodes <- ncores
+    if(parallelization == "socket"){
+      cl <- makeCluster(nodes, type = "PSOCK")}
+    else{
+      cl <- makeForkCluster(nodes)
+    }
+    registerDoParallel(cl)
+  }
   
   #merging fwd and rev sequences
   mergers = mlply(mergerArgs, function(dadaFs, derepFs, dadaRs, derepRs){
@@ -685,10 +724,12 @@ process = function(path,
     
     merger <- mergePairs(dadaF, derepF, dadaR, derepR, maxMismatch = 0, verbose=TRUE)
     return(merger)
-  }, .parallel = TRUE, .paropts = list(.packages = "dada2"))
+  }, .parallel = parallel, .paropts = list(.packages = "dada2"))
   
   #stopping parallel backend
-  stopCluster(cl)
+  if(parallel){
+    stopCluster(cl)
+  }
   
   names(mergers) = sample.names
   
@@ -719,7 +760,7 @@ process = function(path,
   # ---- Removing bimeras and merging orientFR.split samples ----
   cat("\n")
   cat("Removing bimeras...\n")
-
+  
   # all samples in sample.names will be processed; 
   # samples in poolList will be pooled according to poolList,
   # samples not in poolList will default to an bimera removal pool containing all unpooled samples
@@ -729,12 +770,12 @@ process = function(path,
     
     poolSampleNames = poolList[[dadaPoolName]]
     poolSampleNamesMatch = match(poolSampleNames,sample.names)
-
+    
     poolseqtab <- makeSequenceTable(mergers[poolSampleNamesMatch])
     saveRDS(poolseqtab,file = paste0(path,"/outputs/",dadaPoolName,"_seqtab.rds"))
     
     #consensus-based chimera removal (sequences which appear to be composed of two parent sequences)
-    poolseqtab.nochim <- removeBimeraDenovo(poolseqtab, method="consensus", multithread=TRUE, verbose=TRUE)
+    poolseqtab.nochim <- removeBimeraDenovo(poolseqtab, method="consensus", multithread=ncores, verbose=TRUE)
     saveRDS(poolseqtab.nochim,file = paste0(path,"/outputs/",dadaPoolName,"_seqtab.nochim.rds"))
     
     track[poolSampleNamesMatch,"nonchim"] <<- rowSums(poolseqtab.nochim)
@@ -758,14 +799,14 @@ process = function(path,
       colnames(seqtab.orientR.nochim) = as.character(reverseComplement(DNAStringSet(colnames(seqtab.orientR.nochim))))
       
       seqtab.nochim <- mergeSequenceTables(tables = list(seqtab.orientF.nochim,seqtab.orientR.nochim), repeats = "sum")
-      seqtab.nochim <- removeBimeraDenovo(seqtab.nochim, method="consensus", multithread=TRUE, verbose=TRUE)
+      seqtab.nochim <- removeBimeraDenovo(seqtab.nochim, method="consensus", multithread=ncores, verbose=TRUE)
       saveRDS(seqtab.nochim,file = paste0(path,"/outputs/",dadaPoolName,"_seqtab.nochim.rds"))
       
       track[poolSampleNamesMatch,"orient.merged"] <<- rowSums(poolseqtab.nochim)
     })
   }
   print(track)
-    
+  
   cat("\n")
   cat("Done.\n")
   return(track)
