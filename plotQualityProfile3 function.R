@@ -179,7 +179,7 @@ plotQualityProfile3 = function(fnFs,fnRs,primerLenF,primerLenR,seqlen,trimLeftSe
     scale_color_manual(name = "Error-free Prob.",
                        labels = c(errorF = "Fwd read", errorR = "Rev read",
                                   errorSum = "Both reads summed",
-                                  overlapError = "Overlap region, ending at CycleF"),
+                                  overlapError = paste0("Mean in ",overlapLen," bp Overlap region, ending at CycleF")),
                        values=c(errorF = "red", errorR = "blue",
                                 errorSum = "black",
                                 overlapError = "grey")
@@ -206,6 +206,7 @@ plotQualityProfile3 = function(fnFs,fnRs,primerLenF,primerLenR,seqlen,trimLeftSe
     vjust = 1, hjust = 1))
   
   print(plot)
+  # These recommended truncLenSelect values maximize error-free probability for the trimmed fwd and rev reads
   print(paste0("Recommended truncLenSelect: c(",
                subarray_csumMeanMax$CycleF[subarray_csumMeanMax$n == overlapLen],
                ",",
