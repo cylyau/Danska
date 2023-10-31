@@ -607,6 +607,11 @@ process = function(path,
       #DADA denoising
       dadaFList <- dada(poolDerepFFileList, err=dadaErrF, priors = dadaPriorsF, pool=denoisePoolParameter, OMEGA_A = OMEGA_A, multithread=ncores)
       
+      #relist dadaFList if dada function would result in a dada object instead of a list
+      if(length(poolDerepFFileList)==1){
+        dadaFList = list(dadaFList)
+      }
+      
       for(i in 1:length(dadaFList)){
         saveRDS(dadaFList[[i]],file = paste0(path,"/dada denoised/",poolSampleNames[i],"_dadaF.rds"))
         dadaFs[poolSampleNamesMatch[i],1] <<- paste0(path,"/dada denoised/",poolSampleNames[i],"_dadaF.rds")
@@ -675,6 +680,11 @@ process = function(path,
       
       #DADA denoising
       dadaRList <- dada(poolDerepRFileList, err=dadaErrR, priors = dadapriorsR, pool=denoisePoolParameter, OMEGA_A = OMEGA_A, multithread=ncores)
+      
+      #relist dadaRList if dada function would result in a dada object instead of a list
+      if(length(poolDerepRFileList)==1){
+        dadaRList = list(dadaRList)
+      }
       
       for(i in 1:length(dadaRList)){
         saveRDS(dadaRList[[i]],file = paste0(path,"/dada denoised/",poolSampleNames[i],"_dadaR.rds"))
