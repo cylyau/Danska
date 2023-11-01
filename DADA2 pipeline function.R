@@ -269,7 +269,7 @@ library(plyr)
 # saveDenoised = TRUE : should DADA denoised files be saved? If not, files will be removed after merging.
 # ---- Paralellization parameters ----
 # parallel = TRUE : should functions run parallelized? If FALSE, all parallelized functions are run serially.
-# ncores = detectCores() : number of cores to be used in paralellized functions. If unspecified, uses all cores detected.
+# ncores = detectCores() : number of cores to be used in parallelized functions. If unspecified, uses all cores detected.
 # If ncores = 1, all functions are run serially.
 
 # ==== DADA2 Processing Pipeline function ====
