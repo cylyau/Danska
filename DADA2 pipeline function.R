@@ -293,8 +293,8 @@ process = function(path,
                    saveDenoised = TRUE,
                    
                    parallel = TRUE,
-                   ncores = NULL){
-  # ---- paralellization setup ----
+                   ncores = detectCores()){
+  # ---- parallelization setup ----
   # select parallelization method based on OS
   if(.Platform$OS.type == "windows"){
     parallelization <- "socket"
@@ -370,7 +370,7 @@ process = function(path,
     #NOTE: consider relaxing maxEE if needed
     out <- filterAndTrimWinPara(fnFs, filtFs, fnRs, filtRs, truncLen = truncLenSelect, trimLeft = trimLeftSelect,
                                 maxN=0, maxEE=c(2,2), truncQ=2, rm.phix=TRUE,
-                                compress=TRUE, multithread=parallel, ncores = ncores, matchIDs=filter.matchIDs)
+                                compress=TRUE, multithread=ncores, matchIDs=filter.matchIDs)
     
     track[,1:2] <- out
     print(track)
