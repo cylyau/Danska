@@ -204,7 +204,7 @@ library(plyr)
 # If orientFR.split = TRUE, expect sample.names contain "sampleName.orientF", "sampleName.orientR";
 # where orientF/R designates the orientation of the amplicon.
 
-# errPoolName : name of DADA2 run (used to name and save error model files, and create error model pool for unpooled samples)
+# errPoolName : name of DADA2 run (used to name and save error model files)
 
 # orientFR.split = FALSE : Are samples reads split into F and R orientations R1 and R2 files be used separately for error models?
 # Split samples will be recombined at the end in the seqtab.nochim.
@@ -259,7 +259,7 @@ library(plyr)
 
 # ---- Preprocessing parameters ----
 # preFilteredToggle = TRUE : has filtering reads already been done? Requires filtered FASTQ files in a "filtered" folder.
-# preCalcErrToggle = TRUE :  has error model generation been done? Requires error model files, named by errPoolName or poolNames, in a "Error Models" folder.
+# preCalcErrToggle = TRUE :  has error model generation been done? Requires error model files, named by errPoolName, in a "Error Models" folder.
 # preDerepToggle = TRUE :  has dereplicating reads already been done? Requires dereplicated reads files in a "dereplicated" folder.
 # preDenoiseToggle = TRUE : has denoising reads already been done? Requires denoised reads files in a "dada denoised" folder.
 
@@ -340,10 +340,10 @@ process = function(path,
   # if there are unpooled samples, create unpooled sample pool(s)
   if(length(outPoolListNamesMatch) > 0){
     if(!orientFR.split){
-      poolList[[errPoolName]] = c(sample.names[outPoolListNamesMatch])
+      poolList[["unpooled"]] = c(sample.names[outPoolListNamesMatch])
     }else{
-      poolList[[paste0(errPoolName,".orientF")]] = c(sample.names[outPoolListNamesMatch][grep(".orientF",sample.names[outPoolListNamesMatch], fixed = FALSE)])
-      poolList[[paste0(errPoolName,".orientR")]] = c(sample.names[outPoolListNamesMatch][grep(".orientR",sample.names[outPoolListNamesMatch], fixed = FALSE)])
+      poolList[[paste0("unpooled",".orientF")]] = c(sample.names[outPoolListNamesMatch][grep(".orientF",sample.names[outPoolListNamesMatch], fixed = FALSE)])
+      poolList[[paste0("unpooled",".orientR")]] = c(sample.names[outPoolListNamesMatch][grep(".orientR",sample.names[outPoolListNamesMatch], fixed = FALSE)])
     }
   }
   # ---- create sequence tracking table ----
@@ -390,53 +390,102 @@ process = function(path,
   dir.create(path = paste0(path,"/Error Models"), showWarnings = TRUE)
   
   if(!preCalcErrToggle){
-    # generate error model for each pool
-    a_ply(names(poolList),1, function(dadaPoolName){
-      cat(paste0("Generating error model for pool '",dadaPoolName,"'...\n"))
+    if(orientFR.split){
+      #learning error models for split samples
+      orientFerrF <- learnErrors(filtFs[grep(".orientF", filtFs, fixed = TRUE)], multithread=TRUE)
+      orientFerrR <- learnErrors(filtRs[grep(".orientF", filtRs, fixed = TRUE)], multithread=TRUE)
+      orientRerrF <- learnErrors(filtFs[grep(".orientR", filtFs, fixed = TRUE)], multithread=TRUE)
+      orientRerrR <- learnErrors(filtRs[grep(".orientR", filtRs, fixed = TRUE)], multithread=TRUE)
       
-      poolSampleNames = poolList[[dadaPoolName]]
-      poolSampleNamesMatch = match(poolSampleNames,sample.names)
+      if(ErrModelMonotonicity){
+        #set error values for Q-scores<40 to equal error values for Q-scores=40
+        #orientFerrF
+        orientFerrFOutMono = (getErrors(orientFerrF))
+        orientFerrFOutMono = apply(orientFerrFOutMono, 2, FUN = function(x){
+          y = x
+          print(y)
+          y[y<orientFerrFOutMono[,40]] = orientFerrFOutMono[,40][y<orientFerrFOutMono[,40]]
+          print(y)
+          return(y)
+        })
+        orientFerrF$err_out = orientFerrFOutMono
+        
+        #orientFerrR
+        orientFerrROutMono = (getErrors(orientFerrR))
+        orientFerrROutMono = apply(orientFerrROutMono, 2, FUN = function(x){
+          y = x
+          print(y)
+          y[y<orientFerrROutMono[,40]] = orientFerrROutMono[,40][y<orientFerrROutMono[,40]]
+          print(y)
+          return(y)
+        })
+        orientFerrR$err_out = orientFerrROutMono
+        
+        #orientRerrF
+        orientRerrFOutMono = (getErrors(orientRerrF))
+        orientRerrFOutMono = apply(orientRerrFOutMono, 2, FUN = function(x){
+          y = x
+          print(y)
+          y[y<orientRerrFOutMono[,40]] = orientRerrFOutMono[,40][y<orientRerrFOutMono[,40]]
+          print(y)
+          return(y)
+        })
+        orientRerrF$err_out = orientRerrFOutMono
+        
+        #orientRerrR
+        orientRerrROutMono = (getErrors(orientRerrR))
+        orientRerrROutMono = apply(orientRerrROutMono, 2, FUN = function(x){
+          y = x
+          print(y)
+          y[y<orientRerrROutMono[,40]] = orientRerrROutMono[,40][y<orientRerrROutMono[,40]]
+          print(y)
+          return(y)
+        })
+        orientRerrR$err_out = orientRerrROutMono
+      }
       
-      poolfiltFs = file.path(path, "filtered", paste0(sample.names[poolSampleNamesMatch], "_F_filt.fastq.gz"))
-      poolfiltRs = file.path(path, "filtered", paste0(sample.names[poolSampleNamesMatch], "_R_filt.fastq.gz"))
+      #saving error model files as .rds
+      saveRDS(orientFerrF,file = paste0(path,"/Error Models/",errPoolName,".orientF","_errF.rds"))
+      saveRDS(orientFerrR,file = paste0(path,"/Error Models/",errPoolName,".orientF","_errR.rds"))
+      saveRDS(orientRerrF,file = paste0(path,"/Error Models/",errPoolName,".orientR","_errF.rds"))
+      saveRDS(orientRerrR,file = paste0(path,"/Error Models/",errPoolName,".orientR","_errR.rds"))
       
-      print(poolSampleNames)
-      
+    }else{
       #learning error models
-      poolerrF <- learnErrors(poolfiltFs, multithread=ncores)
-      poolerrR <- learnErrors(poolfiltRs, multithread=ncores)
+      errF <- learnErrors(filtFs, multithread=TRUE)
+      errR <- learnErrors(filtRs, multithread=TRUE)
       
       if(ErrModelMonotonicity){
         #set error values for Q-scores<40 to equal error values for Q-scores=40
         #ErrF
-        poolerrFOutMono = (getErrors(poolerrF))
-        poolerrFOutMono = apply(poolerrFOutMono, 2, FUN = function(x){
+        errFOutMono = (getErrors(errF))
+        errFOutMono = apply(errFOutMono, 2, FUN = function(x){
           y = x
           print(y)
-          y[y<poolerrFOutMono[,40]] = poolerrFOutMono[,40][y<poolerrFOutMono[,40]]
+          y[y<errFOutMono[,40]] = errFOutMono[,40][y<errFOutMono[,40]]
           print(y)
           return(y)
         })
         
-        poolerrF$err_out = poolerrFOutMono
+        errF$err_out = errFOutMono
         
         #ErrR
-        poolerrROutMono = (getErrors(poolerrR))
-        poolerrROutMono = apply(poolerrROutMono, 2, FUN = function(x){
+        errROutMono = (getErrors(errR))
+        errROutMono = apply(errROutMono, 2, FUN = function(x){
           y = x
           print(y)
-          y[y<poolerrROutMono[,40]] = poolerrROutMono[,40][y<poolerrROutMono[,40]]
+          y[y<errROutMono[,40]] = errROutMono[,40][y<errROutMono[,40]]
           print(y)
           return(y)
         })
         
-        poolerrR$err_out = poolerrROutMono
+        errR$err_out = errROutMono
       }
       
       #saving error model files as .rds
-      saveRDS(poolerrF,file = paste0(path,"/Error Models/",dadaPoolName,"_errF.rds"))
-      saveRDS(poolerrR,file = paste0(path,"/Error Models/",dadaPoolName,"_errR.rds"))
-    })
+      saveRDS(errF,file = paste0(path,"/Error Models/",errPoolName,"_errF.rds"))
+      saveRDS(errR,file = paste0(path,"/Error Models/",errPoolName,"_errR.rds"))
+    }
   }else{
     cat("Skip generating error models...\n")
   }
@@ -594,10 +643,18 @@ process = function(path,
       })
       
       # Setting error model to be used
-      dadaErrF = readRDS(file.path(path,"Error Models",paste0(dadaPoolName,"_errF.rds")))
+      if(orientFR.split){
+        if(!is.orientR){
+          dadaErrF = readRDS(file.path(path,"Error Models",paste0(errPoolName,".orientF","_errF.rds")))
+        }else{
+          dadaErrF = readRDS(file.path(path,"Error Models",paste0(errPoolName,".orientR","_errF.rds")))
+        }
+      }else{
+        dadaErrF = readRDS(file.path(path,"Error Models",paste0(errPoolName,"_errF.rds")))
+      }
       
       # checking if dadaPoolName represents the unpooled samples
-      if(grepl(errPoolName,dadaPoolName, fixed = TRUE)){
+      if(grepl("unpooled",dadaPoolName, fixed = TRUE)){
         cat("\nUnpooled samples will be denoised with pool = FALSE...")
         denoisePoolParameter = FALSE
       }else{
@@ -675,8 +732,16 @@ process = function(path,
         derepRFile = readRDS(x)
       })
       
-      dadaErrR = readRDS(file.path(path,"Error Models",paste0(dadaPoolName,"_errR.rds")))
-      
+      # Setting error model to be used
+      if(orientFR.split){
+        if(!is.orientR){
+          dadaErrR = readRDS(file.path(path,"Error Models",paste0(errPoolName,".orientF","_errR.rds")))
+        }else{
+          dadaErrR = readRDS(file.path(path,"Error Models",paste0(errPoolName,".orientR","_errR.rds")))
+        }
+      }else{
+        dadaErrR = readRDS(file.path(path,"Error Models",paste0(errPoolName,"_errR.rds")))
+      }
       
       #DADA denoising
       dadaRList <- dada(poolDerepRFileList, err=dadaErrR, priors = dadapriorsR, pool=denoisePoolParameter, OMEGA_A = OMEGA_A, multithread=ncores)
