@@ -47,11 +47,25 @@ QscoreQuantiles = function(scores, counts, prob){
   # quant
 }
 # ==== getAggregateQualityScores function ====
-getAggregateQualityScores = function (fl, n = 5e+05, quantiles = FALSE){
-  plotdf = lapply(fl[!is.na(fl)], function(x){
-    srqa <- ShortRead::qa(x, n = n)
+getAggregateQualityScores = function (fl, n = 5e+05, quantiles = FALSE, ncores = detectCores()){
+  ncores = detectCores()
+  
+  if(.Platform$OS.type == "windows"){
+    cl <- makeCluster(ncores, type = "PSOCK")
+  }else{
+    cl <- makeCluster(ncores, type = "FORK")
+  }
+  
+  clusterExport(cl, varlist = c("n"))
+  
+  plotdf = parLapply(cl = cl, X = fl[!is.na(fl)], function(f){
+    serialParam = BiocParallel::SerialParam()
+    srqa <- ShortRead::qa(f, n = n, BPPARAM = serialParam)
     df <- srqa[["perCycle"]]$quality
   })
+  
+  stopCluster(cl)
+  
   plotdf = do.call(rbind, plotdf)
   
   plotdf.summary <- aggregate(Count ~ Cycle + Score, plotdf,
@@ -203,7 +217,8 @@ plotQualityProfile3 = function(fnFs,fnRs,primerLenF,primerLenR,seqlen,trimLeftSe
     y = c(Inf,Inf), 
     label = c("recom. truncLenF", "recom. truncLenR"),
     angle = 90,
-    vjust = 1, hjust = 1))
+    vjust = 1, hjust = 1))+
+    theme(legend.position="bottom")
   
   print(plot)
   # These recommended truncLenSelect values maximize error-free probability for the trimmed fwd and rev reads
