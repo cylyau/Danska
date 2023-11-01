@@ -836,50 +836,42 @@ process = function(path,
   cat("\n")
   cat("Removing bimeras...\n")
   
-  # all samples in sample.names will be processed; 
-  # samples in poolList will be pooled according to poolList,
-  # samples not in poolList will default to an bimera removal pool containing all unpooled samples
+  # all samples in sample.names will be processed
   
-  a_ply(names(poolList),1, function(dadaPoolName){
-    cat(paste0("Removing bimeras for pool '",dadaPoolName,"'...\n"))
+  if(orientFR.split){
+    seqtab.orientF <- makeSequenceTable(mergers[grep(".orientF", sample.names, fixed = TRUE)])
+    saveRDS(seqtab.orientF,file = paste0(path,"/outputs/",errPoolName,".orientF_seqtab.rds"))
     
-    poolSampleNames = poolList[[dadaPoolName]]
-    poolSampleNamesMatch = match(poolSampleNames,sample.names)
-    
-    poolseqtab <- makeSequenceTable(mergers[poolSampleNamesMatch])
-    saveRDS(poolseqtab,file = paste0(path,"/outputs/",dadaPoolName,"_seqtab.rds"))
+    seqtab.orientR <- makeSequenceTable(mergers[grep(".orientR", sample.names, fixed = TRUE)])
+    saveRDS(seqtab.orientR,file = paste0(path,"/outputs/",errPoolName,".orientR_seqtab.rds"))
     
     #consensus-based chimera removal (sequences which appear to be composed of two parent sequences)
-    poolseqtab.nochim <- removeBimeraDenovo(poolseqtab, method="consensus", multithread=ncores, verbose=TRUE)
-    saveRDS(poolseqtab.nochim,file = paste0(path,"/outputs/",dadaPoolName,"_seqtab.nochim.rds"))
+    seqtab.orientF.nochim <- removeBimeraDenovo(seqtab.orientF, method="consensus", multithread=TRUE, verbose=TRUE)
+    seqtab.orientR.nochim <- removeBimeraDenovo(seqtab.orientR, method="consensus", multithread=TRUE, verbose=TRUE)
+    saveRDS(seqtab.orientF.nochim,file = paste0(path,"/outputs/",errPoolName,".orientF_seqtab.nochim.rds"))
+    saveRDS(seqtab.orientR.nochim,file = paste0(path,"/outputs/",errPoolName,".orientR_seqtab.nochim.rds"))
     
-    track[poolSampleNamesMatch,"nonchim"] <<- rowSums(poolseqtab.nochim)
-  })
-  
-  # merging orientFR.split samples
-  if(orientFR.split){
-    no_orientdadaPoolNames = unique(gsub("\\.orient.","",names(poolList), fixed = FALSE))
+    rownames(seqtab.orientF.nochim) = gsub(".orientF","",rownames(seqtab.orientF.nochim))
+    rownames(seqtab.orientR.nochim) = gsub(".orientR","",rownames(seqtab.orientR.nochim))
+    colnames(seqtab.orientR.nochim) = as.character(reverseComplement(DNAStringSet(colnames(seqtab.orientR.nochim))))
     
-    a_ply(no_orientdadaPoolNames,1,function(dadaPoolName){
-      seqtab.orientF.nochim <- readRDS(file.path(path,"/outputs/", paste0(dadaPoolName,".orientF_seqtab.nochim.rds")))
-      seqtab.orientR.nochim <- readRDS(file.path(path,"/outputs/", paste0(dadaPoolName,".orientR_seqtab.nochim.rds")))
-      
-      poolSampleNames.orientF = poolList[[paste0(dadaPoolName,".orientF")]]
-      poolSampleNames.orientR = poolList[[paste0(dadaPoolName,".orientR")]]
-      # poolSampleNamesMatch.orientF = match(poolSampleNames.orientF,sample.names)
-      # poolSampleNamesMatch.orientR = match(poolSampleNames.orientR,sample.names)
-      
-      rownames(seqtab.orientF.nochim) = gsub(".orientF","",rownames(seqtab.orientF.nochim))
-      rownames(seqtab.orientR.nochim) = gsub(".orientR","",rownames(seqtab.orientR.nochim))
-      colnames(seqtab.orientR.nochim) = as.character(reverseComplement(DNAStringSet(colnames(seqtab.orientR.nochim))))
-      
-      seqtab.nochim <- mergeSequenceTables(tables = list(seqtab.orientF.nochim,seqtab.orientR.nochim), repeats = "sum")
-      seqtab.nochim <- removeBimeraDenovo(seqtab.nochim, method="consensus", multithread=ncores, verbose=TRUE)
-      saveRDS(seqtab.nochim,file = paste0(path,"/outputs/",dadaPoolName,"_seqtab.nochim.rds"))
-      
-      track[poolSampleNamesMatch,"orient.merged"] <<- rowSums(poolseqtab.nochim)
-    })
+    seqtab.nochim <- mergeSequenceTables(tables = list(seqtab.orientF.nochim,seqtab.orientR.nochim), repeats = "sum")
+    seqtab.nochim <- removeBimeraDenovo(seqtab.nochim, method="consensus", multithread=TRUE, verbose=TRUE)
+    saveRDS(seqtab.nochim,file = paste0(path,"/outputs/",errPoolName,"_seqtab.nochim.rds"))
+    
+    track[grep(".orientF", sample.names, fixed = TRUE),"nonchim"] = rowSums(seqtab.orientF.nochim)
+    track[grep(".orientR", sample.names, fixed = TRUE),"nonchim"] = rowSums(seqtab.orientR.nochim)
+  }else{
+    seqtab <- makeSequenceTable(mergers)
+    saveRDS(seqtab,file = paste0(path,"/outputs/",errPoolName,"_seqtab.rds"))
+    
+    #consensus-based chimera removal (sequences which appear to be composed of two parent sequences)
+    seqtab.nochim <- removeBimeraDenovo(seqtab, method="consensus", multithread=TRUE, verbose=TRUE)
+    saveRDS(seqtab.nochim,file = paste0(path,"/outputs/",errPoolName,"_seqtab.nochim.rds"))
+    
+    track[,"nonchim"] = rowSums(seqtab.nochim)
   }
+  
   print(track)
   
   cat("\n")
